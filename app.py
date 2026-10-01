@@ -1,6 +1,8 @@
+import io
 import os
 import re
 import time
+import zipfile
 import streamlit as st
 from deep_translator import GoogleTranslator
 
@@ -47,6 +49,46 @@ def generate_srt(subtitles):
   return "\n".join(output)
 
 
+def translate_subtitles_batch(subtitles, target_code):
+  """자막을 묶음(청크) 단위로 번역하여 API 차단(Rate Limit)을 방지합니다."""
+  translator = GoogleTranslator(source="ko", target=target_code)
+  chunk_size = 20  # 한 번에 묶을 자막 라인 수
+  translated_texts = []
+
+  for i in range(0, len(subtitles), chunk_size):
+    chunk = subtitles[i : i + chunk_size]
+    texts_to_translate = [sub["text"].replace("\n", " ") for sub in chunk]
+    combined_text = "\n[SEP]\n".join(texts_to_translate)
+
+    try:
+      translated_combined = translator.translate(combined_text)
+      if translated_combined:
+        # 번역 결과에서 구분자([SEP]) 기준으로 분리
+        parts = re.split(
+            r"\s*\[\s*sep\s*\]\s*", translated_combined, flags=re.IGNORECASE
+        )
+        if len(parts) == len(texts_to_translate):
+          translated_texts.extend(parts)
+        else:
+          # 개수 불일치 시 개별 번역으로 폴백
+          for text in texts_to_translate:
+            try:
+              t_single = translator.translate(text)
+              translated_texts.append(t_single if t_single else text)
+              time.sleep(0.05)
+            except:
+              translated_texts.append(text)
+      else:
+        translated_texts.extend(texts_to_translate)
+    except Exception:
+      # 오류 발생 시 원본 텍스트 유지
+      translated_texts.extend(texts_to_translate)
+
+    time.sleep(0.2)  # 요청 간 딜레이
+
+  return translated_texts
+
+
 # 파일 업로드 위젯
 uploaded_file = st.file_uploader(
     "한글 자막 파일(.srt)을 업로드하세요", type=["srt"]
@@ -82,25 +124,21 @@ if uploaded_file is not None:
         total_langs = len(LANGUAGES)
         for i, (lang_name, info) in enumerate(LANGUAGES.items()):
           status_text.text(f"{lang_name} 번역 중...")
-          translator = GoogleTranslator(source="ko", target=info["code"])
+
+          # 청크 단위 번역 함수 호출
+          translated_texts = translate_subtitles_batch(
+              subtitles, info["code"]
+          )
 
           translated_subtitles = []
-          for sub in subtitles:
-            original_text = sub["text"].replace("\n", " ")
-            try:
-              translated_text = translator.translate(original_text)
-              if not translated_text:
-                translated_text = original_text
-            except Exception:
-              translated_text = f"[번역실패] {original_text}"
-
+          for idx, sub in enumerate(subtitles):
             translated_subtitles.append({
                 "index": sub["index"],
                 "timestamp": sub["timestamp"],
-                "text": translated_text,
+                "text": translated_texts[idx]
+                if idx < len(translated_texts)
+                else sub["text"],
             })
-            # 요청 간 간격을 두어 서버 차단 방지
-            time.sleep(0.1)
 
           srt_result = generate_srt(translated_subtitles)
           filename = f"{base_filename}{info['suffix']}"
@@ -115,9 +153,27 @@ if uploaded_file is not None:
         st.balloons()
 
         st.markdown("---")
-        st.subheader("📥 번역된 자막 파일 개별 다운로드")
+        st.subheader("📥 번역된 자막 파일 다운로드")
 
-        # 언어별로 각각 독립된 다운로드 버튼 제공
+        # 1. 전체 파일 한 번에 다운로드 (ZIP) 버튼
+        zip_buffer = io.BytesIO()
+        with zipfile.ZipFile(
+            zip_buffer, "w", zipfile.ZIP_DEFLATED
+        ) as zip_file:
+          for lang_name, res in translated_results.items():
+            zip_file.writestr(res["filename"], res["data"])
+        zip_buffer.seek(0)
+
+        st.download_button(
+            label="📦 모든 번역 파일 한번에 다운로드 (ZIP)",
+            data=zip_buffer,
+            file_name=f"{base_filename}_translated_subtitles.zip",
+            mime="application/zip",
+        )
+
+        st.markdown("---")
+
+        # 2. 언어별 개별 다운로드 버튼
         for lang_name, res in translated_results.items():
           st.download_button(
               label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
