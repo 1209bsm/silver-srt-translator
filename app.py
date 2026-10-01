@@ -4,7 +4,7 @@ import re
 import time
 import zipfile
 import streamlit as st
-from deep_translator import MicrosoftTranslator
+from googletrans import Translator
 
 # 페이지 설정
 st.set_page_config(
@@ -17,17 +17,11 @@ st.write(
     " 영어 자막 파일로 각각 변환하여 다운로드할 수 있습니다."
 )
 
-# 지원할 타겟 언어 설정 (Microsoft Translator 기준 언어 코드 적용)
+# 지원할 타겟 언어 설정 (googletrans 기준 언어 코드)
 LANGUAGES = {
     "영어 (English)": {"code": "en", "suffix": "_EN.srt"},
-    "중국어 간체 (Chinese Simplified)": {
-        "code": "zh-Hans",
-        "suffix": "_ZH-CN.srt",
-    },
-    "중국어 번체 (Chinese Traditional)": {
-        "code": "zh-Hant",
-        "suffix": "_ZH-TW.srt",
-    },
+    "중국어 간체 (Chinese Simplified)": {"code": "zh-cn", "suffix": "_ZH-CN.srt"},
+    "중국어 번체 (Chinese Traditional)": {"code": "zh-tw", "suffix": "_ZH-TW.srt"},
     "일본어 (Japanese)": {"code": "ja", "suffix": "_JA.srt"},
     "인도네시아어 (Indonesian)": {"code": "id", "suffix": "_ID.srt"},
 }
@@ -53,32 +47,6 @@ def generate_srt(subtitles):
   for sub in subtitles:
     output.append(f"{sub['index']}\n{sub['timestamp']}\n{sub['text']}\n")
   return "\n".join(output)
-
-
-def translate_subtitles_safe(subtitles, target_code):
-  """MicrosoftTranslator를 사용하여 클라우드 차단 없이 안전하게 한 줄씩 번역합니다."""
-  translated_texts = []
-  for sub in subtitles:
-    text = sub["text"].replace("\n", " ")
-    if not text.strip():
-      translated_texts.append("")
-      continue
-
-    try:
-      translated = MicrosoftTranslator(source="ko", target=target_code).translate(
-          text
-      )
-      if translated:
-        translated_texts.append(translated)
-      else:
-        translated_texts.append(text)
-    except Exception:
-      translated_texts.append(text)
-
-    # 서버 부하 방지 및 안정적인 번역을 위한 미세 딜레이
-    time.sleep(0.1)
-
-  return translated_texts
 
 
 # 파일 업로드 위젯
@@ -113,24 +81,41 @@ if uploaded_file is not None:
         base_filename = os.path.splitext(uploaded_file.name)[0]
         translated_results = {}
 
+        translator = Translator()
         total_langs = len(LANGUAGES)
+        
+        error_occurred = False
+        error_message = ""
+
         for i, (lang_name, info) in enumerate(LANGUAGES.items()):
           status_text.text(f"{lang_name} 번역 중...")
 
-          # 안정적인 번역 함수 호출
-          translated_texts = translate_subtitles_safe(
-              subtitles, info["code"]
-          )
-
           translated_subtitles = []
-          for idx, sub in enumerate(subtitles):
+          for sub in subtitles:
+            text = sub["text"].replace("\n", " ")
+            if not text.strip():
+              translated_subtitles.append({
+                  "index": sub["index"],
+                  "timestamp": sub["timestamp"],
+                  "text": "",
+              })
+              continue
+
+            try:
+              # googletrans를 이용한 번역
+              translated = translator.translate(text, src="ko", dest=info["code"])
+              translated_text = translated.text if translated and translated.text else text
+            except Exception as e:
+              error_occurred = True
+              error_message = str(e)
+              translated_text = text
+
             translated_subtitles.append({
                 "index": sub["index"],
                 "timestamp": sub["timestamp"],
-                "text": translated_texts[idx]
-                if idx < len(translated_texts)
-                else sub["text"],
+                "text": translated_text,
             })
+            time.sleep(0.05)
 
           srt_result = generate_srt(translated_subtitles)
           filename = f"{base_filename}{info['suffix']}"
@@ -142,7 +127,10 @@ if uploaded_file is not None:
           progress_bar.progress((i + 1) / total_langs)
 
         status_text.text("모든 번역이 완료되었습니다!")
-        st.balloons()
+        if error_occurred:
+          st.warning(f"⚠️️ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러: {error_message})")
+        else:
+          st.balloons()
 
         st.markdown("---")
         st.subheader("📥 번역된 자막 파일 다운로드")
