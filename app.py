@@ -4,7 +4,7 @@ import re
 import time
 import zipfile
 import streamlit as st
-from deep_translator import MyMemoryTranslator
+from deep_translator import MicrosoftTranslator
 
 # 페이지 설정
 st.set_page_config(
@@ -17,11 +17,17 @@ st.write(
     " 영어 자막 파일로 각각 변환하여 다운로드할 수 있습니다."
 )
 
-# 지원할 타겟 언어 설정 (언어 이름, 코드, 파일 접미사)
+# 지원할 타겟 언어 설정 (Microsoft Translator 기준 언어 코드 적용)
 LANGUAGES = {
     "영어 (English)": {"code": "en", "suffix": "_EN.srt"},
-    "중국어 간체 (Chinese Simplified)": {"code": "zh-CN", "suffix": "_ZH-CN.srt"},
-    "중국어 번체 (Chinese Traditional)": {"code": "zh-TW", "suffix": "_ZH-TW.srt"},
+    "중국어 간체 (Chinese Simplified)": {
+        "code": "zh-Hans",
+        "suffix": "_ZH-CN.srt",
+    },
+    "중국어 번체 (Chinese Traditional)": {
+        "code": "zh-Hant",
+        "suffix": "_ZH-TW.srt",
+    },
     "일본어 (Japanese)": {"code": "ja", "suffix": "_JA.srt"},
     "인도네시아어 (Indonesian)": {"code": "id", "suffix": "_ID.srt"},
 }
@@ -50,7 +56,7 @@ def generate_srt(subtitles):
 
 
 def translate_subtitles_safe(subtitles, target_code):
-  """MyMemoryTranslator를 사용하여 클라우드 차단 없이 안전하게 한 줄씩 번역합니다."""
+  """MicrosoftTranslator를 사용하여 클라우드 차단 없이 안전하게 한 줄씩 번역합니다."""
   translated_texts = []
   for sub in subtitles:
     text = sub["text"].replace("\n", " ")
@@ -59,7 +65,7 @@ def translate_subtitles_safe(subtitles, target_code):
       continue
 
     try:
-      translated = MyMemoryTranslator(source="ko", target=target_code).translate(
+      translated = MicrosoftTranslator(source="ko", target=target_code).translate(
           text
       )
       if translated:
