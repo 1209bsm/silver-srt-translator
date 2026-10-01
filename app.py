@@ -4,7 +4,7 @@ import re
 import time
 import zipfile
 import streamlit as st
-from deep_translator import GoogleTranslator
+from deep_translator import MyMemoryTranslator
 
 # 페이지 설정
 st.set_page_config(
@@ -49,42 +49,28 @@ def generate_srt(subtitles):
   return "\n".join(output)
 
 
-def translate_subtitles_batch(subtitles, target_code):
-  """자막을 묶음(청크) 단위로 번역하여 API 차단(Rate Limit)을 방지합니다."""
-  translator = GoogleTranslator(source="ko", target=target_code)
-  chunk_size = 20  # 한 번에 묶을 자막 라인 수
+def translate_subtitles_safe(subtitles, target_code):
+  """MyMemoryTranslator를 사용하여 클라우드 차단 없이 안전하게 한 줄씩 번역합니다."""
   translated_texts = []
-
-  for i in range(0, len(subtitles), chunk_size):
-    chunk = subtitles[i : i + chunk_size]
-    texts_to_translate = [sub["text"].replace("\n", " ") for sub in chunk]
-    combined_text = "\n[SEP]\n".join(texts_to_translate)
+  for sub in subtitles:
+    text = sub["text"].replace("\n", " ")
+    if not text.strip():
+      translated_texts.append("")
+      continue
 
     try:
-      translated_combined = translator.translate(combined_text)
-      if translated_combined:
-        # 번역 결과에서 구분자([SEP]) 기준으로 분리
-        parts = re.split(
-            r"\s*\[\s*sep\s*\]\s*", translated_combined, flags=re.IGNORECASE
-        )
-        if len(parts) == len(texts_to_translate):
-          translated_texts.extend(parts)
-        else:
-          # 개수 불일치 시 개별 번역으로 폴백
-          for text in texts_to_translate:
-            try:
-              t_single = translator.translate(text)
-              translated_texts.append(t_single if t_single else text)
-              time.sleep(0.05)
-            except:
-              translated_texts.append(text)
+      translated = MyMemoryTranslator(source="ko", target=target_code).translate(
+          text
+      )
+      if translated:
+        translated_texts.append(translated)
       else:
-        translated_texts.extend(texts_to_translate)
+        translated_texts.append(text)
     except Exception:
-      # 오류 발생 시 원본 텍스트 유지
-      translated_texts.extend(texts_to_translate)
+      translated_texts.append(text)
 
-    time.sleep(0.2)  # 요청 간 딜레이
+    # 서버 부하 방지 및 안정적인 번역을 위한 미세 딜레이
+    time.sleep(0.1)
 
   return translated_texts
 
@@ -125,8 +111,8 @@ if uploaded_file is not None:
         for i, (lang_name, info) in enumerate(LANGUAGES.items()):
           status_text.text(f"{lang_name} 번역 중...")
 
-          # 청크 단위 번역 함수 호출
-          translated_texts = translate_subtitles_batch(
+          # 안정적인 번역 함수 호출
+          translated_texts = translate_subtitles_safe(
               subtitles, info["code"]
           )
 
