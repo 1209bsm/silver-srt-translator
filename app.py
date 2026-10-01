@@ -126,18 +126,22 @@ if uploaded_file is not None:
               })
               continue
 
-            try:
-              # googletrans를 이용한 번역
-              translated = translator.translate(
-                  text, src="ko", dest=info["code"]
-              )
-              translated_text = (
-                  translated.text if translated and translated.text else text
-              )
-            except Exception as e:
-              error_occurred = True
-              error_message = str(e)
-              translated_text = text
+            translated_text = text
+            # 일시적인 타임아웃 방지를 위한 최대 3회 재시도 로직
+            for attempt in range(3):
+              try:
+                translated = translator.translate(
+                    text, src="ko", dest=info["code"]
+                )
+                if translated and translated.text:
+                  translated_text = translated.text
+                  break
+              except Exception as e:
+                if attempt == 2:  # 마지막 시도에서도 실패한 경우
+                  error_occurred = True
+                  error_message = str(e)
+                else:
+                  time.sleep(0.3)  # 재시도 전 잠시 대기
 
             translated_subtitles.append({
                 "index": sub["index"],
@@ -188,7 +192,7 @@ if uploaded_file is not None:
         # 2. 언어별 개별 다운로드 버튼
         for lang_name, res in translated_results.items():
           st.download_button(
-              label=f"⬇️️ {lang_name} 자막 다운로드 ({res['filename']})",
+              label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
               data=res["data"],
               file_name=res["filename"],
               mime="text/plain",
