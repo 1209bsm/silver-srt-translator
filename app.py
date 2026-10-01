@@ -33,16 +33,26 @@ from googletrans import Translator
 
 # 페이지 설정
 st.set_page_config(
-    page_title="자막 다국어 번역기", page_icon="🌐", layout="centered"
+    page_title="양방향 자막 번역기", page_icon="🌐", layout="centered"
 )
 
-st.title("🌐 자막 파일 다국어 번역 서비스")
+st.title("🌐 자막 파일 양방향 번역 서비스")
 st.write(
-    "한글 자막 파일(`.srt`)을 업로드하면 중국어(간체/번체), 일본어, 인도네시아어,"
-    " 영어 자막 파일로 각각 변환하여 다운로드할 수 있습니다."
+    "자막 파일(`.srt`)을 업로드하여 **한글 ➡️ 다국어** 또는 **외국어 ➡️"
+    " 한글**로 자유롭게 번역할 수 있습니다."
 )
 
-# 지원할 타겟 언어 설정 (googletrans 기준 언어 코드)
+# 번역 모드 선택
+mode = st.radio(
+    "번역 방향을 선택하세요:",
+    [
+        "한글 자막 ➡️ 다국어 번역 (영어, 중국어, 일본어, 인도네시아어)",
+        "외국어 자막 ➡️ 한글 번역",
+    ],
+    horizontal=False,
+)
+
+# 지원할 타겟 언어 설정 (한글 -> 다국어 모드용)
 LANGUAGES = {
     "영어 (English)": {"code": "en", "suffix": "_EN.srt"},
     "중국어 간체 (Chinese Simplified)": {"code": "zh-cn", "suffix": "_ZH-CN.srt"},
@@ -75,9 +85,7 @@ def generate_srt(subtitles):
 
 
 # 파일 업로드 위젯
-uploaded_file = st.file_uploader(
-    "한글 자막 파일(.srt)을 업로드하세요", type=["srt"]
-)
+uploaded_file = st.file_uploader("자막 파일(.srt)을 업로드하세요", type=["srt"])
 
 if uploaded_file is not None:
   try:
@@ -99,24 +107,122 @@ if uploaded_file is not None:
           f"총 {len(subtitles)}개의 자막 라인을 성공적으로 읽어왔습니다!"
       )
 
-      if st.button("🚀 자막 번역 시작하기"):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
+      base_filename = os.path.splitext(uploaded_file.name)[0]
+      translator = Translator()
 
-        base_filename = os.path.splitext(uploaded_file.name)[0]
-        translated_results = {}
+      # -------------------------------------------------------------
+      # [모드 1] 한글 자막 ➡️ 다국어 번역 (5개 국어 생성)
+      # -------------------------------------------------------------
+      if mode == "한글 자막 ➡️ 다국어 번역 (영어, 중국어, 일본어, 인도네시아어)":
+        if st.button("🚀 다국어 자막으로 번역 시작하기"):
+          progress_bar = st.progress(0)
+          status_text = st.empty()
 
-        translator = Translator()
-        total_langs = len(LANGUAGES)
+          translated_results = {}
+          total_langs = len(LANGUAGES)
+          error_occurred = False
+          error_message = ""
 
-        error_occurred = False
-        error_message = ""
+          for i, (lang_name, info) in enumerate(LANGUAGES.items()):
+            status_text.text(f"{lang_name} 번역 중...")
 
-        for i, (lang_name, info) in enumerate(LANGUAGES.items()):
-          status_text.text(f"{lang_name} 번역 중...")
+            translated_subtitles = []
+            for sub in subtitles:
+              text = sub["text"].replace("\n", " ")
+              if not text.strip():
+                translated_subtitles.append({
+                    "index": sub["index"],
+                    "timestamp": sub["timestamp"],
+                    "text": "",
+                })
+                continue
 
+              translated_text = text
+              for attempt in range(3):
+                try:
+                  translated = translator.translate(
+                      text, src="ko", dest=info["code"]
+                  )
+                  if translated and translated.text:
+                    translated_text = translated.text
+                    break
+                except Exception as e:
+                  if attempt == 2:
+                    error_occurred = True
+                    error_message = str(e)
+                  else:
+                    time.sleep(0.3)
+
+              translated_subtitles.append({
+                  "index": sub["index"],
+                  "timestamp": sub["timestamp"],
+                  "text": translated_text,
+              })
+              time.sleep(0.05)
+
+            srt_result = generate_srt(translated_subtitles)
+            filename = f"{base_filename}{info['suffix']}"
+            translated_results[lang_name] = {
+                "filename": filename,
+                "data": srt_result,
+            }
+
+            progress_bar.progress((i + 1) / total_langs)
+
+          status_text.text("모든 번역이 완료되었습니다!")
+          if error_occurred:
+            st.warning(
+                f"⚠ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러:"
+                f" {error_message})"
+            )
+          else:
+            st.balloons()
+
+          st.markdown("---")
+          st.subheader("📥 번역된 자막 파일 다운로드")
+
+          # 1. 전체 파일 한 번에 다운로드 (ZIP) 버튼
+          zip_buffer = io.BytesIO()
+          with zipfile.ZipFile(
+              zip_buffer, "w", zipfile.ZIP_DEFLATED
+          ) as zip_file:
+            for lang_name, res in translated_results.items():
+              zip_file.writestr(res["filename"], res["data"])
+          zip_buffer.seek(0)
+
+          st.download_button(
+              label="📦 모든 번역 파일 한번에 다운로드 (ZIP)",
+              data=zip_buffer,
+              file_name=f"{base_filename}_translated_subtitles.zip",
+              mime="application/zip",
+          )
+
+          st.markdown("---")
+
+          # 2. 언어별 개별 다운로드 버튼
+          for lang_name, res in translated_results.items():
+            st.download_button(
+                label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
+                data=res["data"],
+                file_name=res["filename"],
+                mime="text/plain",
+            )
+
+      # -------------------------------------------------------------
+      # [모드 2] 외국어 자막 ➡️ 한글 번역 (단일 파일 생성)
+      # -------------------------------------------------------------
+      else:
+        if st.button("🚀 한글 자막으로 번역 시작하기"):
+          progress_bar = st.progress(0)
+          status_text = st.empty()
+
+          status_text.text("한글로 번역 중...")
           translated_subtitles = []
-          for sub in subtitles:
+          total_subs = len(subtitles)
+          error_occurred = False
+          error_message = ""
+
+          for idx, sub in enumerate(subtitles):
             text = sub["text"].replace("\n", " ")
             if not text.strip():
               translated_subtitles.append({
@@ -127,74 +233,47 @@ if uploaded_file is not None:
               continue
 
             translated_text = text
-            # 일시적인 타임아웃 방지를 위한 최대 3회 재시도 로직
             for attempt in range(3):
               try:
-                translated = translator.translate(
-                    text, src="ko", dest=info["code"]
-                )
+                # src='auto' 설정으로 입력 자막의 언어를 자동으로 감지하여 한글(ko)로 번역
+                translated = translator.translate(text, src="auto", dest="ko")
                 if translated and translated.text:
                   translated_text = translated.text
                   break
               except Exception as e:
-                if attempt == 2:  # 마지막 시도에서도 실패한 경우
+                if attempt == 2:
                   error_occurred = True
                   error_message = str(e)
                 else:
-                  time.sleep(0.3)  # 재시도 전 잠시 대기
+                  time.sleep(0.3)
 
             translated_subtitles.append({
                 "index": sub["index"],
                 "timestamp": sub["timestamp"],
                 "text": translated_text,
             })
+            progress_bar.progress((idx + 1) / total_subs)
             time.sleep(0.05)
 
           srt_result = generate_srt(translated_subtitles)
-          filename = f"{base_filename}{info['suffix']}"
-          translated_results[lang_name] = {
-              "filename": filename,
-              "data": srt_result,
-          }
+          output_filename = f"{base_filename}_KO.srt"
 
-          progress_bar.progress((i + 1) / total_langs)
+          status_text.text("한글 번역이 완료되었습니다!")
+          if error_occurred:
+            st.warning(
+                f"⚠ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러:"
+                f" {error_message})"
+            )
+          else:
+            st.balloons()
 
-        status_text.text("모든 번역이 완료되었습니다!")
-        if error_occurred:
-          st.warning(
-              f"⚠ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러:"
-              f" {error_message})"
-          )
-        else:
-          st.balloons()
+          st.markdown("---")
+          st.subheader("📥 번역된 자막 파일 다운로드")
 
-        st.markdown("---")
-        st.subheader("📥 번역된 자막 파일 다운로드")
-
-        # 1. 전체 파일 한 번에 다운로드 (ZIP) 버튼
-        zip_buffer = io.BytesIO()
-        with zipfile.ZipFile(
-            zip_buffer, "w", zipfile.ZIP_DEFLATED
-        ) as zip_file:
-          for lang_name, res in translated_results.items():
-            zip_file.writestr(res["filename"], res["data"])
-        zip_buffer.seek(0)
-
-        st.download_button(
-            label="📦 모든 번역 파일 한번에 다운로드 (ZIP)",
-            data=zip_buffer,
-            file_name=f"{base_filename}_translated_subtitles.zip",
-            mime="application/zip",
-        )
-
-        st.markdown("---")
-
-        # 2. 언어별 개별 다운로드 버튼
-        for lang_name, res in translated_results.items():
           st.download_button(
-              label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
-              data=res["data"],
-              file_name=res["filename"],
+              label=f"⬇️ 한글 자막 다운로드 ({output_filename})",
+              data=srt_result,
+              file_name=output_filename,
               mime="text/plain",
           )
 
