@@ -1,9 +1,34 @@
 import io
 import os
 import re
+import sys
 import time
 import zipfile
 import streamlit as st
+
+# Python 3.13+ 환경에서 삭제된 cgi 모듈 호환성 패치 (httpx 오류 방지)
+if "cgi" not in sys.modules:
+  import types
+
+  cgi_mock = types.ModuleType("cgi")
+
+
+  def parse_header(line):
+    if not line:
+      return "", {}
+    parts = line.split(";")
+    key = parts[0].strip()
+    pdict = {}
+    for p in parts[1:]:
+      if "=" in p:
+        k, v = p.split("=", 1)
+        pdict[k.strip().lower()] = v.strip().strip('"\'')
+    return key, pdict
+
+
+  cgi_mock.parse_header = parse_header
+  sys.modules["cgi"] = cgi_mock
+
 from googletrans import Translator
 
 # 페이지 설정
@@ -83,7 +108,7 @@ if uploaded_file is not None:
 
         translator = Translator()
         total_langs = len(LANGUAGES)
-        
+
         error_occurred = False
         error_message = ""
 
@@ -103,8 +128,12 @@ if uploaded_file is not None:
 
             try:
               # googletrans를 이용한 번역
-              translated = translator.translate(text, src="ko", dest=info["code"])
-              translated_text = translated.text if translated and translated.text else text
+              translated = translator.translate(
+                  text, src="ko", dest=info["code"]
+              )
+              translated_text = (
+                  translated.text if translated and translated.text else text
+              )
             except Exception as e:
               error_occurred = True
               error_message = str(e)
@@ -128,7 +157,10 @@ if uploaded_file is not None:
 
         status_text.text("모든 번역이 완료되었습니다!")
         if error_occurred:
-          st.warning(f"⚠️️ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러: {error_message})")
+          st.warning(
+              f"⚠ 일부 번역 과정에서 오류가 발생했습니다. (참고 에러:"
+              f" {error_message})"
+          )
         else:
           st.balloons()
 
@@ -156,7 +188,7 @@ if uploaded_file is not None:
         # 2. 언어별 개별 다운로드 버튼
         for lang_name, res in translated_results.items():
           st.download_button(
-              label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
+              label=f"⬇️️ {lang_name} 자막 다운로드 ({res['filename']})",
               data=res["data"],
               file_name=res["filename"],
               mime="text/plain",
