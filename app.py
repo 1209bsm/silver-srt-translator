@@ -1,5 +1,6 @@
 import os
 import re
+import time
 import streamlit as st
 from deep_translator import GoogleTranslator
 
@@ -91,13 +92,15 @@ if uploaded_file is not None:
               if not translated_text:
                 translated_text = original_text
             except Exception:
-              translated_text = original_text
+              translated_text = f"[번역실패] {original_text}"
 
             translated_subtitles.append({
                 "index": sub["index"],
                 "timestamp": sub["timestamp"],
                 "text": translated_text,
             })
+            # 요청 간 간격을 두어 서버 차단 방지
+            time.sleep(0.1)
 
           srt_result = generate_srt(translated_subtitles)
           filename = f"{base_filename}{info['suffix']}"
