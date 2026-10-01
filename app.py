@@ -202,7 +202,7 @@ if uploaded_file is not None:
           # 2. 언어별 개별 다운로드 버튼
           for lang_name, res in translated_results.items():
             st.download_button(
-                label=f"⬇️ {lang_name} 자막 다운로드 ({res['filename']})",
+                label=f"⬇️️ {lang_name} 자막 다운로드 ({res['filename']})",
                 data=res["data"],
                 file_name=res["filename"],
                 mime="text/plain",
@@ -279,3 +279,7 @@ if uploaded_file is not None:
 
   except Exception as e:
     st.error(f"파일을 처리하는 동안 오류가 발생했습니다: {e}")
+
+# 화면 하단 푸터 (번역 엔진 안내)
+st.markdown("---")
+st.caption("💡 본 서비스는 **Google Translate** 엔진 기반으로 동작합니다.")
