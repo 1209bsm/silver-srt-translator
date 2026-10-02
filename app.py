@@ -1,12 +1,15 @@
 import io
+import json
 import os
 import re
 import sys
 import time
+import urllib.parse
+import urllib.request
 import zipfile
 import streamlit as st
 
-# Python 3.13+ 환경에서 삭제된 cgi 모듈 호환성 패치 (httpx 오류 방지)
+# Python 3.13+ 환경에서 삭제된 cgi 모듈 호환성 패치 (기타 모듈 충돌 방지)
 if "cgi" not in sys.modules:
   import types
 
@@ -29,7 +32,41 @@ if "cgi" not in sys.modules:
   cgi_mock.parse_header = parse_header
   sys.modules["cgi"] = cgi_mock
 
-from googletrans import Translator
+
+# 외부 라이브러리 설치 없이 파이썬 기본 내장 모듈(urllib)을 활용하는 번역기 클래스
+class SimpleTranslator:
+
+  def translate(self, text, src="auto", dest="ko"):
+    if not text.strip():
+      class Dummy:
+        text = ""
+
+      return Dummy()
+
+    url = "https://translate.googleapis.com/translate_a/single"
+    params = {
+        "client": "gtx",
+        "sl": src,
+        "tl": dest,
+        "dt": "t",
+        "q": text,
+    }
+    encoded_params = urllib.parse.urlencode(params)
+    full_url = f"{url}?{encoded_params}"
+
+    req = urllib.request.Request(
+        full_url, headers={"User-Agent": "Mozilla/5.0"}
+    )
+    with urllib.request.urlopen(req, timeout=5) as response:
+      result = json.loads(response.read().decode("utf-8"))
+      translated_text = "".join(
+          [sentence[0] for sentence in result[0] if sentence[0]]
+      )
+      class TranslatedResult:
+        text = translated_text
+
+      return TranslatedResult()
+
 
 # 페이지 설정
 st.set_page_config(
@@ -114,12 +151,7 @@ if uploaded_file is not None:
       )
 
       base_filename = os.path.splitext(uploaded_file.name)[0]
-      translator = Translator()
-      # googletrans 내부 버그(raise_Exception 속성 누락) 방지 패치
-      try:
-        translator.raise_Exception = False
-      except AttributeError:
-        pass
+      translator = SimpleTranslator()
 
       # -------------------------------------------------------------
       # [모드 1] 한글 자막 ➡️ 다국어 번역 (한국어 SRT 포함 6개 파일 생성)
@@ -254,7 +286,7 @@ if uploaded_file is not None:
             translated_text = text
             for attempt in range(3):
               try:
-                # src='auto' 설정으로 입력 자막의 언어를 자동으로 감지하여 한글(ko)로 번역
+                # src='auto' 설정으로 입력 자막 언어 자동 감지 후 한글(ko)로 번역
                 translated = translator.translate(
                     text, src="auto", dest="ko"
                 )
@@ -303,4 +335,4 @@ if uploaded_file is not None:
 
 # 화면 하단 푸터 (번역 엔진 안내)
 st.markdown("---")
-st.caption("💡 본 서비스는 **Google Translate** 엔진 기반으로 동작합니다.")
+st.caption("💡 본 서비스는 파이썬 내장 모듈을 활용한 번역 엔진으로 동작합니다.")
