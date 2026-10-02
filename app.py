@@ -38,8 +38,8 @@ st.set_page_config(
 
 st.title("🌐 자막 파일 양방향 번역 서비스")
 st.write(
-    "자막 파일(`.srt`)을 업로드하여 **한글 ➡️ 다국어** 또는 **외국어 ➡️"
-    " 한글**로 자유롭게 번역할 수 있습니다."
+    "자막 파일(`.srt` 또는 `.txt`)을 업로드하여 **한글 ➡️ 다국어** 또는 **외국어"
+    " ➡️ 한글**로 자유롭게 번역할 수 있습니다."
 )
 
 # 번역 모드 선택
@@ -56,7 +56,10 @@ mode = st.radio(
 LANGUAGES = {
     "영어 (English)": {"code": "en", "suffix": "_EN.srt"},
     "중국어 간체 (Chinese Simplified)": {"code": "zh-cn", "suffix": "_ZH-CN.srt"},
-    "중국어 번체 (Chinese Traditional)": {"code": "zh-tw", "suffix": "_ZH-TW.srt"},
+    "중국어 번체 (Chinese Traditional)": {
+        "code": "zh-tw",
+        "suffix": "_ZH-TW.srt",
+    },
     "일본어 (Japanese)": {"code": "ja", "suffix": "_JA.srt"},
     "인도네시아어 (Indonesian)": {"code": "id", "suffix": "_ID.srt"},
 }
@@ -86,7 +89,7 @@ def generate_srt(subtitles):
 
 # 파일 업로드 위젯
 uploaded_file = st.file_uploader(
-    "자막 파일(.srt 또는 .txt)을 업로드하세요", type=["srt", "txt"]
+    "자막 파일(`.srt` 또는 `.txt`)을 업로드하세요", type=["srt", "txt"]
 )
 
 if uploaded_file is not None:
@@ -102,7 +105,8 @@ if uploaded_file is not None:
 
     if not subtitles:
       st.error(
-          "자막 형식을 인식할 수 없습니다. 올바른 `.srt` 파일인지 확인해주세요."
+          "자막 형식을 인식할 수 없습니다. 올바른 `.srt` 또는 자막 형식의 `.txt`"
+          " 파일인지 확인해주세요."
       )
     else:
       st.success(
@@ -111,9 +115,14 @@ if uploaded_file is not None:
 
       base_filename = os.path.splitext(uploaded_file.name)[0]
       translator = Translator()
+      # googletrans 내부 버그(raise_Exception 속성 누락) 방지 패치
+      try:
+        translator.raise_Exception = False
+      except AttributeError:
+        pass
 
       # -------------------------------------------------------------
-      # [모드 1] 한글 자막 ➡️ 다국어 번역 (5개 국어 생성)
+      # [모드 1] 한글 자막 ➡️ 다국어 번역 (한국어 SRT 포함 6개 파일 생성)
       # -------------------------------------------------------------
       if mode == "한글 자막 ➡️ 다국어 번역 (영어, 중국어, 일본어, 인도네시아어)":
         if st.button("🚀 다국어 자막으로 번역 시작하기"):
@@ -121,7 +130,15 @@ if uploaded_file is not None:
           status_text = st.empty()
 
           translated_results = {}
-          total_langs = len(LANGUAGES)
+          total_langs = len(LANGUAGES) + 1  # LANGUAGES + 한국어 SRT 포함
+
+          # 1. 한국어 원본/정리본 SRT 결과 추가
+          ko_srt_result = generate_srt(subtitles)
+          translated_results["한국어 (Korean)"] = {
+              "filename": f"{base_filename}_KO.srt",
+              "data": ko_srt_result,
+          }
+
           error_occurred = False
           error_message = ""
 
@@ -204,7 +221,7 @@ if uploaded_file is not None:
           # 2. 언어별 개별 다운로드 버튼
           for lang_name, res in translated_results.items():
             st.download_button(
-                label=f"⬇️️ {lang_name} 자막 다운로드 ({res['filename']})",
+                label=f"⬇ {lang_name} 자막 다운로드 ({res['filename']})",
                 data=res["data"],
                 file_name=res["filename"],
                 mime="text/plain",
@@ -238,7 +255,9 @@ if uploaded_file is not None:
             for attempt in range(3):
               try:
                 # src='auto' 설정으로 입력 자막의 언어를 자동으로 감지하여 한글(ko)로 번역
-                translated = translator.translate(text, src="auto", dest="ko")
+                translated = translator.translate(
+                    text, src="auto", dest="ko"
+                )
                 if translated and translated.text:
                   translated_text = translated.text
                   break
