@@ -85,7 +85,9 @@ def generate_srt(subtitles):
 
 
 # 파일 업로드 위젯
-uploaded_file = st.file_uploader("자막 파일(.srt)을 업로드하세요", type=["srt"])
+uploaded_file = st.file_uploader(
+    "자막 파일(.srt 또는 .txt)을 업로드하세요", type=["srt", "txt"]
+)
 
 if uploaded_file is not None:
   try:
